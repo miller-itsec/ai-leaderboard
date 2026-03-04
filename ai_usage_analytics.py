@@ -166,6 +166,8 @@ def fetch_cursor(api_key, days=90):
             "chat_total_applies": sum(d.get("total_suggested_diffs", 0) for d in agent_days),
             "chat_total_accepts": sum(d.get("total_accepted_diffs", 0) for d in agent_days),
             "tabs_accepted": sum(d.get("total_accepts", 0) for d in tab_days),
+            "agent_lines_accepted": sum(d.get("total_lines_accepted", 0) for d in agent_days),
+            "tab_lines_accepted": sum(d.get("total_lines_accepted", 0) for d in tab_days),
         })
 
     if rows:
@@ -173,6 +175,7 @@ def fetch_cursor(api_key, days=90):
     return pd.DataFrame(columns=[
         "email", "normalized_name", "chat_tabs_shown",
         "chat_total_applies", "chat_total_accepts", "tabs_accepted",
+        "agent_lines_accepted", "tab_lines_accepted",
     ])
 
 
@@ -321,11 +324,16 @@ def build_unified(cursor_df, copilot_df):
     df.loc[~has_cursor & has_copilot, "match_status"] = "copilot_only"
 
     # AI lines — intentional (chat/agent) vs passive (tab completions)
+    # Prefer actual LOC from API; fall back to diff count
     df["cursor_chat_lines"] = 0
     df["cursor_tab_lines"] = 0
-    if "cursor_chat_total_accepts" in df.columns:
+    if "cursor_agent_lines_accepted" in df.columns:
+        df["cursor_chat_lines"] = df["cursor_agent_lines_accepted"]
+    elif "cursor_chat_total_accepts" in df.columns:
         df["cursor_chat_lines"] = df["cursor_chat_total_accepts"]
-    if "cursor_tabs_accepted" in df.columns:
+    if "cursor_tab_lines_accepted" in df.columns:
+        df["cursor_tab_lines"] = df["cursor_tab_lines_accepted"]
+    elif "cursor_tabs_accepted" in df.columns:
         df["cursor_tab_lines"] = df["cursor_tabs_accepted"] * CURSOR_LINES_PER_TAB
     df["cursor_ai_lines"] = df["cursor_chat_lines"] + df["cursor_tab_lines"]
     df["copilot_ai_lines"] = df.get("copilot_loc_added", pd.Series(0, index=df.index))
