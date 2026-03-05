@@ -308,13 +308,30 @@ def build_unified(cursor_df, copilot_df):
 
     df["display_name"] = df["normalized_name"].apply(_display_name)
 
-    # Tool presence
-    has_cursor = (df["cursor_email"].notna() & (df["cursor_email"] != "")
-                  if "cursor_email" in df.columns
-                  else pd.Series(False, index=df.index))
-    has_copilot = (df["copilot_user_login"].notna() & (df["copilot_user_login"] != "")
-                   if "copilot_user_login" in df.columns
-                   else pd.Series(False, index=df.index))
+    # Tool presence — require actual activity, not just an account existing
+    if "cursor_email" in df.columns:
+        _has_login = df["cursor_email"].notna() & (df["cursor_email"] != "")
+        _cursor_lines = pd.Series(0, index=df.index)
+        for _cc in ("cursor_tabs_accepted", "cursor_chat_total_accepts"):
+            if _cc in df.columns:
+                _cursor_lines = _cursor_lines + df[_cc].fillna(0)
+        has_cursor = _has_login & (_cursor_lines > 0)
+    else:
+        has_cursor = pd.Series(False, index=df.index)
+
+    if "copilot_user_login" in df.columns:
+        _has_login = df["copilot_user_login"].notna() & (df["copilot_user_login"] != "")
+        _copilot_lines = pd.Series(0, index=df.index)
+        for _cc in ("copilot_loc_added", "copilot_loc_added_intentional",
+                     "copilot_loc_added_passive"):
+            if _cc in df.columns:
+                _copilot_lines = _copilot_lines + df[_cc].fillna(0)
+        _copilot_interact = (df["copilot_interactions"].fillna(0)
+                             if "copilot_interactions" in df.columns
+                             else pd.Series(0, index=df.index))
+        has_copilot = _has_login & ((_copilot_lines > 0) | (_copilot_interact > 0))
+    else:
+        has_copilot = pd.Series(False, index=df.index)
 
     df["has_cursor"] = has_cursor
     df["has_copilot"] = has_copilot
@@ -405,6 +422,13 @@ def build_unified(cursor_df, copilot_df):
         df.loc[df["intentional_ai_lines"] >= q95, "segment"] = "Champion"
     else:
         df["segment"] = "Inactive"
+
+    # Any AI activity (interactions OR passive LOC) should not be Inactive
+    df.loc[
+        (df["segment"] == "Inactive")
+        & ((df["total_interactions"] > 0) | (df["total_ai_lines"] > 0)),
+        "segment",
+    ] = "Casual"
 
     df = df.sort_values("intentional_ai_lines", ascending=False).reset_index(drop=True)
     return df
